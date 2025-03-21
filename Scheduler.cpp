@@ -112,17 +112,18 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         }
         
         int tasks_available = machine.num_cpus * 2 - machine.active_tasks;
+        unsigned memory_available = machine.memory_size - machine.memory_used;
         //cout << "Tasks active " <<  tasks_available << endl;
         //3 cases
         // can fit, VM exists
         bool vm_found = false;
-        if(tasks_available > 0)
+        if(tasks_available > 0 && memory_available >= (task.required_memory))
         {
             for(int j = 0; j < MachinesToVMs[i].size(); j++){
                 if(VM_GetInfo(MachinesToVMs[i][j]).vm_type == task.required_vm)
                 {
                     VM_AddTask(MachinesToVMs[i][j], task_id, MID_PRIORITY);
-                    cout << "Task " << task_id << " added case 1 to machine " << machines[i] << endl;
+                    // cout << "Task " << task_id << " added case 1 to machine " << machines[i] << endl;
                     vm_found = true;
                     break;
                 }
@@ -134,13 +135,13 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         // can fit, VM doesn't exist (need +8 for VM)
         if(!vm_found)
         {
-            if(tasks_available >= 0)
+            if(tasks_available >= 0 && memory_available >= (task.required_memory + 8))
             {
                 VMId_t newVm = VM_Create(task.required_vm, machine.cpu);
                 VM_Attach(newVm, machines[i]);
                 MachinesToVMs[i].push_back(newVm);
                 VM_AddTask(newVm, task_id, MID_PRIORITY);
-                cout << "Task added case 2!" << endl;
+                // cout << "Task added case 2!" << endl;
                 vm_found = true;
                 break;
             }
