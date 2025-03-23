@@ -119,8 +119,9 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
             continue;
         }
         
-        int tasks_available = machine.num_cpus * 2 - machine.active_tasks;
-        unsigned memory_available = machine.memory_size - machine.memory_used;
+        int tasks_available = machine.num_cpus * 2 - estimatedActiveTasks(machine.machine_id);
+        unsigned memory_available = estimatedMemoryAvailable(machine.machine_id);
+        
         // if(machine.active_tasks > 0){
         //     cout << "Machine " << machine.machine_id << "has " << machine.active_tasks << " active tasks" << endl;
         // }
@@ -232,7 +233,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
                     continue;
                 }
                 // cout << "C" << endl;
-                unsigned availableMemory = destination.memory_size - estimatedMemoryAvailable(machinesCopy[j]);
+                unsigned availableMemory = estimatedMemoryAvailable(machinesCopy[j]);
 
                 if(Machine_GetInfo(machinesCopy[j]).num_cpus * 2 - estimatedActiveTasks(machinesCopy[j]) - currentVM.active_tasks.size() >= 0 && availableMemory >= currentVMSize){
                     //remove from machinestovms
