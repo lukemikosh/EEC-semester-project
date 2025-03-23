@@ -21,7 +21,7 @@ unsigned estimatedActiveTasks(MachineId_t machine_id);
 
 static bool migrating = false;
 static vector<vector<VMId_t>> MachinesToVMs;
-static unordered_map<VMId_t, bool> migrationMap;
+static unordered_map<VMId_t, MachineId_t> migrationMap;
 
 
 
@@ -189,7 +189,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     // This is an opportunity to make any adjustments to optimize performance/energy
 
     vector<MachineId_t> machinesCopy = machines;
-    unordered_map<VMId_t, MachineId_t> destinationMap;
+    unordered_map<VMId_t, vector<MachineId_t>> destinationMap;
 
     // cout << "A" << endl;
 
@@ -215,11 +215,11 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
 
     // cout << "B" << endl;
     while((unsigned) CurrentMachine < machinesCopy.size()){
-
+        MachineId_t CurrentMachineId = machinesCopy[CurrentMachine];
         
-        for(unsigned i = 0; i < MachinesToVMs[CurrentMachine].size(); i++){
+        for(unsigned i = 0; i < MachinesToVMs[CurrentMachineId].size(); i++){
             
-            VMInfo_t currentVM = VM_GetInfo(MachinesToVMs[CurrentMachine][i]);
+            VMInfo_t currentVM = VM_GetInfo(MachinesToVMs[CurrentMachineId][i]);
             unsigned currentVMSize = VMSize(currentVM.vm_id);
 
             if(migrationMap.count(currentVM.vm_id)){
@@ -236,14 +236,9 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
                 unsigned availableMemory = estimatedMemoryAvailable(machinesCopy[j]);
 
                 if(Machine_GetInfo(machinesCopy[j]).num_cpus * 2 - estimatedActiveTasks(machinesCopy[j]) - currentVM.active_tasks.size() >= 0 && availableMemory >= currentVMSize){
-                    //remove from machinestovms
-                    for(unsigned k = 0; k < MachinesToVMs[CurrentMachine].size(); k++){
-                        if(MachinesToVMs[CurrentMachine][k] == currentVM.vm_id){
-                            MachinesToVMs[CurrentMachine].erase(MachinesToVMs[CurrentMachine].begin() + k);
-                        }
-                    }
                     //add to destination map
-                    destinationMap[currentVM.vm_id] = machinesCopy[j];
+                    vector<MachineId_t> srcDest = {(MachineId_t) CurrentMachine, machinesCopy[j]};
+                    destinationMap[currentVM.vm_id] = srcDest;
                     //add to other machinestovms
                     MachinesToVMs[machinesCopy[j]].push_back(currentVM.vm_id);
                     break;
@@ -261,8 +256,9 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     //migrate all in destination map
     //update migration map
     for(auto it = destinationMap.begin(); it != destinationMap.end(); it++){
-        VM_Migrate(it->first, it->second);
-        migrationMap[it->first] = true;
+        migrationMap[it->first] = it->second.at(0);
+        VM_Migrate(it->first, it->second.at(1));
+        cout << "migrating " << it->first << " to " << it->second.at(1) << endl;
     }
 
 
@@ -298,6 +294,15 @@ void MigrationDone(Time_t time, VMId_t vm_id) {
     // The function is called on to alert you that migration is complete
     SimOutput("MigrationDone(): Migration of VM " + to_string(vm_id) + " was completed at time " + to_string(time), 4);
     Scheduler.MigrationComplete(time, vm_id);
+
+    //remove from source machinestovms
+    MachineId_t source = migrationMap[vm_id];
+    for(unsigned k = 0; k < MachinesToVMs[source].size(); k++){
+        if(MachinesToVMs[source][k] == vm_id){
+            MachinesToVMs[source].erase(MachinesToVMs[source].begin() + k);
+        }
+    }
+
     migrating = false;
     migrationMap.erase(vm_id);
 }
