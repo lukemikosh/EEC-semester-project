@@ -90,10 +90,10 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         }
 
         if(estimatedMemoryAvailable(currentMachine.machine_id) != currentMachine.memory_size - currentMachine.memory_used){
-            cout << "Machine " << currentMachine.machine_id << " estimated memory available: " << estimatedMemoryAvailable(currentMachine.machine_id) << " actual: " << currentMachine.memory_size - currentMachine.memory_used << endl;
+            // cout << "Machine " << currentMachine.machine_id << " estimated memory available: " << estimatedMemoryAvailable(currentMachine.machine_id) << " actual: " << currentMachine.memory_size - currentMachine.memory_used << endl;
         }
         if(estimatedActiveTasks(currentMachine.machine_id) != currentMachine.active_tasks){
-            cout << "estimatedActiveTasks(currentMachine.machine_id) != currentMachine.active_tasks" << endl;
+            // cout << "estimatedActiveTasks(currentMachine.machine_id) != currentMachine.active_tasks" << endl;
         }
 
         if(estimatedMemoryAvailable(currentMachine.machine_id) > (task.required_memory + 8) && currentMachine.num_cpus * tasks_per_cpu - estimatedActiveTasks(currentMachine.machine_id) > 0){
@@ -138,7 +138,7 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     }
 
     if(!task_added){
-        cout << "task_added " << task_id << " " << task_added << endl;
+        // cout << "task_added " << task_id << " " << task_added << endl;
     }
 
     
@@ -159,6 +159,7 @@ void Scheduler::Shutdown(Time_t time) {
     // Report about the SLA compliance
     // Shutdown everything to be tidy :-)
     for(auto & vm: vms) {
+        // cout << "shutting down " << vm <<endl;
         VM_Shutdown(vm);
     }
     SimOutput("SimulationComplete(): Finished!", 4);
@@ -172,11 +173,13 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
 
     //if VM empty DESTROY!!!!
     VMInfo_t completedTaskVM = VM_GetInfo(taskToVM[task_id]);
-    if(completedTaskVM.active_tasks.size() == 0){
+    //MIGRATION CHECK?????
+    if(completedTaskVM.active_tasks.size() == 0 && !migrationMap.count(taskToVM[task_id])){
 
         for(unsigned i = 0; i < machineToVM[completedTaskVM.machine_id].size(); i++){
             if(machineToVM[completedTaskVM.machine_id][i] == completedTaskVM.vm_id){
                 machineToVM[completedTaskVM.machine_id].erase(machineToVM[completedTaskVM.machine_id].begin() + i);
+                // cout << "shutting down VM " << completedTaskVM.vm_id << " on machine " << completedTaskVM.machine_id << endl;
                 VM_Shutdown(completedTaskVM.vm_id);
                 break;
             }
@@ -219,13 +222,13 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
                 MachineId_t destMachine_id = machinesCopy[destMachine_index];
                 MachineInfo_t destMachine = Machine_GetInfo(destMachine_id);
     
-                if(estimatedAvailableTasks(destMachine_id) >= sourceVM.active_tasks.size() && estimatedMemoryAvailable(destMachine_id) >= VMSize(sourceVM_id) && !migrationMap.count(sourceVM_id)){
-
+                if(estimatedAvailableTasks(destMachine_id) >= sourceVM.active_tasks.size() && estimatedMemoryAvailable(destMachine_id) >= VMSize(sourceVM_id) && !migrationMap.count(sourceVM_id) && sourceVM.cpu == destMachine.cpu){
+                    //cout << "VM id " << sourceVM_id << " sourceVM.machine_id: " << sourceVM.machine_id << " sourceMachine_id " << sourceMachine_id << endl;
                     if(sourceVM.machine_id != sourceMachine_id){
-                        cout << "sourceVM.machine_id: " << sourceVM.machine_id << " sourceMachine_id " << sourceMachine_id << endl;
+                        // cout << "sourceVM.machine_id: " << sourceVM.machine_id << " sourceMachine_id " << sourceMachine_id << endl;
 
                         MachineId_t prev_dest = destinationMap[sourceVM.vm_id];
-                        cout << "prev_dest: " << prev_dest << endl;
+                        // cout << "prev_dest: " << prev_dest << endl;
                         bool deleted = false;
                         for(unsigned i = 0; i < machineToVM[prev_dest].size(); i++){
                             if(machineToVM[prev_dest][i] == sourceVM_id){
@@ -241,10 +244,10 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
                     }
 
                     //fake migrate
-                    cout << "fake migrating VM: " << sourceVM_id << " to machine: " << destMachine_id << endl;
+                    // cout << "fake migrating VM: " << sourceVM_id << " to machine: " << destMachine_id << endl;
                     destinationMap[sourceVM_id] = destMachine_id;
                     machineToVM[destMachine_id].push_back(sourceVM_id);
-
+                    break; //HAVE IAN APPROVE THIS
                 }
     
     
@@ -258,7 +261,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     //migrate all in destination map
     //update migration map
     for(auto it = destinationMap.begin(); it != destinationMap.end(); it++){
-        cout << "real migrating " << it->first << " to " << it->second << endl;
+        // cout << "real migrating " << it->first << " to " << it->second << endl;
         migrationMap[it->first] = VM_GetInfo(it->first).machine_id;
         VM_Migrate(it->first, it->second);
     }
