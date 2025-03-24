@@ -57,6 +57,19 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     }
 
     migrationMap.erase(vm_id);
+
+    VMInfo_t currentVM = VM_GetInfo(vm_id);
+    if(currentVM.active_tasks.size() == 0){
+        for(unsigned i = 0; i < machineToVM[currentVM.machine_id].size(); i++){
+            if(machineToVM[currentVM.machine_id][i] == currentVM.vm_id){
+                machineToVM[currentVM.machine_id].erase(machineToVM[currentVM.machine_id].begin() + i);
+                VM_Shutdown(currentVM.vm_id);
+                break;
+            }
+        }
+    }
+
+    
 }
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
@@ -171,6 +184,8 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     // Decide if a machine is to be turned off, slowed down, or VMs to be migrated according to your policy
     // This is an opportunity to make any adjustments to optimize performance/energy
 
+    cout << "Task completed " << task_id << endl;
+
     //if VM empty DESTROY!!!!
     VMInfo_t completedTaskVM = VM_GetInfo(taskToVM[task_id]);
     //MIGRATION CHECK?????
@@ -186,6 +201,8 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
         }
         
     }
+
+    taskToVM.erase(task_id);
 
     vector<MachineId_t> machinesCopy = machines;
     unordered_map<VMId_t, MachineId_t> destinationMap;
