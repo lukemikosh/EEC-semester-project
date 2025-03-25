@@ -1,0 +1,65 @@
+machine class:
+{
+# this is a more powerful alternative to the machines below which is good for applications
+# that leverage the GPU
+Number of machines: 1
+CPU type: POWER
+Number of cores: 4
+Memory: 16384
+S-States: [80, 80, 60, 40, 20, 10, 0]
+P-States: [8, 6, 4, 2]
+C-States: [8, 2, 1, 0]
+MIPS: [3200, 2400, 1200, 400]
+GPUs: yes
+}
+machine class:
+{
+Number of machines: 2
+Number of cores: 16
+CPU type: POWER
+Memory: 16384
+S-States: [120, 100, 100, 80, 40, 10, 0]
+P-States: [12, 8, 6, 4]
+C-States: [12, 3, 1, 0]
+MIPS: [1000, 800, 600, 400]
+GPUs: no
+}
+machine class:
+{
+Number of machines: 16
+Number of cores: 16
+CPU type: X86
+Memory: 32768
+S-States: [120, 100, 100, 80, 40, 10, 0]
+P-States: [12, 8, 6, 4]
+C-States: [12, 3, 1, 0]
+MIPS: [1000, 800, 600, 400]
+GPUs: no
+}
+machine class:
+{
+Number of machines: 2
+Number of cores: 8
+CPU type: RISCV
+Memory: 8192
+S-States: [160, 120, 100, 80, 40, 10, 0]
+P-States: [12, 8, 6, 4]
+C-States: [12, 3, 1, 0]
+MIPS: [1400, 1000, 600, 400]
+GPUs: no
+}
+task class:
+{
+# large tasks that leverage GPU, want to be on the POWER machine with a GPU
+Start time: 80000
+End time : 90000
+Inter arrival: 5000
+Expected runtime: 900000000
+Memory: 14000
+VM type: AIX
+GPU enabled: yes
+SLA type: SLA1
+CPU type: POWER
+Task type: HPC
+Seed: 891
+}

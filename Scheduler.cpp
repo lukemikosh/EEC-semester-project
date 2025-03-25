@@ -9,10 +9,12 @@
 #include <vector>
 #include <bits/stdc++.h>
 #include <unordered_map>
+#include <queue>
 
 vector<vector<VMId_t>> machineToVM;
 unordered_map<VMId_t, MachineId_t> migrationMap;
 unordered_map<TaskId_t, VMId_t> taskToVM;
+queue<TaskId_t> unadded_tasks;
 
 unsigned tasks_per_cpu = 2;
 
@@ -151,7 +153,8 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     }
 
     if(!task_added){
-        // cout << "task_added " << task_id << " " << task_added << endl;
+        // cout << "failed to add task " << task_id<< endl;
+        unadded_tasks.push(task_id);
     }
 
     
@@ -164,6 +167,27 @@ void Scheduler::PeriodicCheck(Time_t now) {
     // SchedulerCheck is called periodically by the simulator to allow you to monitor, make decisions, adjustments, etc.
     // Unlike the other invocations of the scheduler, this one doesn't report any specific event
     // Recommendation: Take advantage of this function to do some monitoring and adjustments as necessary
+    bool task_running = false;
+    for(unsigned i = 0; i < machines.size(); i++)
+    {
+        if(Machine_GetInfo(machines[i]).active_tasks > 0){
+            task_running = true;
+            break;
+        }
+    }
+    if(!task_running){
+        cout << "no tasks running at time: " << now << endl;
+    }
+    unsigned iterations = unadded_tasks.size();
+    cout << "time " << now << " num unadded tasks: " << iterations << endl;
+    // cout << "time " << now << " unadded tasks:";
+    for(unsigned i = 0 ; i < iterations; i++){
+        TaskId_t readd_id = unadded_tasks.front();
+        unadded_tasks.pop();
+        // cout << " " << readd_id;
+        NewTask(now, readd_id);
+    }
+    // cout << endl;
 }
 
 void Scheduler::Shutdown(Time_t time) {
@@ -184,7 +208,7 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     // Decide if a machine is to be turned off, slowed down, or VMs to be migrated according to your policy
     // This is an opportunity to make any adjustments to optimize performance/energy
 
-    cout << "Task completed " << task_id << endl;
+    // cout << "Task completed " << task_id << endl;
 
     //if VM empty DESTROY!!!!
     VMInfo_t completedTaskVM = VM_GetInfo(taskToVM[task_id]);
