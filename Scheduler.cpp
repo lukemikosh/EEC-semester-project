@@ -129,8 +129,8 @@ bool compareEfficiency(VMId_t a, VMId_t b){
     VMInfo_t vm_b = VM_GetInfo(b);
     MachineInfo_t machine_b = Machine_GetInfo(vm_b.machine_id);
     
-    unsigned asum = (machine_a.c_states[0]+machine_a.p_states[0]+machine_a.s_states[0])*machine_b.performance[0];
-    unsigned bsum = (machine_b.c_states[0]+machine_b.p_states[0]+machine_b.s_states[0])*machine_a.performance[0];
+    unsigned asum = (machine_b.c_states[0]+machine_b.p_states[0]+machine_b.s_states[0])*machine_a.performance[0];
+    unsigned bsum = (machine_a.c_states[0]+machine_a.p_states[0]+machine_a.s_states[0])*machine_b.performance[0];
     return asum > bsum;
 
 }
@@ -139,9 +139,9 @@ bool compareEfficiencyMachines(MachineId_t a, MachineId_t b){
     MachineInfo_t machine_a = Machine_GetInfo(a);
     MachineInfo_t machine_b = Machine_GetInfo(b);
     
-    unsigned asum = (machine_a.c_states[0]+machine_a.p_states[0]+machine_a.s_states[0])*machine_b.performance[0];
-    unsigned bsum = (machine_b.c_states[0]+machine_b.p_states[0]+machine_b.s_states[0])*machine_a.performance[0];
-    return asum > bsum;
+    unsigned asum = (machine_b.c_states[0]+machine_b.p_states[0]+machine_b.s_states[0])*machine_a.performance[0];
+    unsigned bsum = (machine_a.c_states[0]+machine_a.p_states[0]+machine_a.s_states[0])*machine_b.performance[0];
+    return asum < bsum;
 
 }
 
