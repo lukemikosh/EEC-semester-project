@@ -1,3 +1,5 @@
-This is the repository for the Cloud Simulator project for CS 378. To run this project, you can compile the Scheduler with `make scheduler` and run `make simulator` to create your simulator executable. Run `./simulator Input.md` to see your results.
+To run this scheduler, compile the Scheduler with `make scheduler` and run `make simulator` to create your simulator executable. Run `./simulator Input.md` to see results.
 
-For questions, please reach out to any of the course staff on via email (anish.palakurthi@utexas.edu, tarun.mohan@utexas.edu, mootaz@austin.utexas.edu) or Ed Discussion.
+This is a greedy scheduler algorithm that assigns tasks to the first avaliable machine. The greedy algorithm will mirate virtual machines to highly utilized machines to attempt to turn off machines. This algorithm also considers GPUs, attempting to assign GPU capable tasks to machines with GPUs.
+
+Some portions of this code were assisted by GitHub Copilot.
