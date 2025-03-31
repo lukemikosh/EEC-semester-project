@@ -3,7 +3,7 @@
 //  CloudSim
 //
 //  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
-//
+// 
 
 #include "Scheduler.hpp"
 #include <vector>
@@ -12,17 +12,26 @@
 #include <queue>
 
 vector<vector<VMId_t>> machineToVM;
-unordered_map<VMId_t, MachineId_t> migrationMap;
 unordered_map<TaskId_t, VMId_t> taskToVM;
-queue<TaskId_t> unadded_tasks;
+vector<vector<TaskId_t>> unadded_tasks;
 
-unsigned tasks_per_cpu = 2;
+vector<vector<vector<MachineId_t>>> activeMachines;
+vector<vector<vector<MachineId_t>>> intrMachines;
+vector<vector<vector<MachineId_t>>> offMachines;
+vector<vector<unsigned>> intrMachine_constants;
+
+vector<vector<vector<MachineId_t>>> machinesBecomingActive;
+vector<vector<vector<MachineId_t>>> machinesBecomingIntr;
+vector<vector<vector<MachineId_t>>> machinesBecomingOff;
+
 
 unsigned VMSize(VMId_t vm_id);
 unsigned estimatedMemoryAvailable(MachineId_t machine_id);
 unsigned estimatedActiveTasks(MachineId_t machine_id);
 unsigned estimatedAvailableTasks(MachineId_t machine_id);
+bool overloadCheck(CPUType_t cpu, bool gpu);
 
+#define TASKS_PER_CPU 2
 
 void Scheduler::Init() {
     // Find the parameters of the clusters
@@ -36,109 +45,127 @@ void Scheduler::Init() {
     SimOutput("Scheduler::Init(): Total number of machines is " + to_string(Machine_GetTotal()), 3);
     SimOutput("Scheduler::Init(): Initializing scheduler", 1);
 
+
+    for (int i = 0; i < 4; i++) {
+        vector<TaskId_t> taskList;
+        unadded_tasks.push_back(taskList);
+    }
+    for (int i = 0; i < 4; i++){
+        vector<vector<MachineId_t>> machineActiveList;
+        activeMachines.push_back(machineActiveList);
+        vector<vector<MachineId_t>> machineIntrList;
+        intrMachines.push_back(machineIntrList);
+        vector<vector<MachineId_t>> machineShutdownList;
+        offMachines.push_back(machineShutdownList);
+        vector<unsigned> intrMachine_constantList;
+        intrMachine_constants.push_back(intrMachine_constantList);
+        for (int j = 0; j < 2; j++){
+            vector<MachineId_t> subActiveList;
+            activeMachines[i].push_back(subActiveList);
+            vector<MachineId_t> subIntrList;
+            intrMachines[i].push_back(subIntrList);
+            vector<MachineId_t> subShutdownList;
+            offMachines[i].push_back(subShutdownList);
+            intrMachine_constants[i].push_back(0);
+        }
+    }
+    
+
     for(unsigned i = 0; i < Machine_GetTotal(); i++) {
         machines.push_back(MachineId_t(i));
         vector<VMId_t> MTV;
         machineToVM.push_back(MTV);
-    }    
+        intrMachine_constants[Machine_GetCPUType(MachineId_t(i))][Machine_GetInfo(MachineId_t(i)).gpus]++;
+        //put all machines in shutdown for now
+        offMachines[Machine_GetCPUType(MachineId_t(i))][Machine_GetInfo(MachineId_t(i)).gpus].push_back(MachineId_t(i));
+    } 
+    for (unsigned i = 0; i < intrMachine_constants.size();i++){
+        for (unsigned  j = 0; j < intrMachine_constants[i].size();j++){
+            intrMachine_constants[i][j] = intrMachine_constants[i][j]/3;
+        }   
+    }
 
+    //setting 0.1 of the machines to be in the intermediate section
+    for(unsigned i = 0; i < intrMachine_constants.size(); i++){
+        
+        vector<vector<MachineId_t>> machineIds;
+        vector<vector<MachineId_t>> machineIds2;
+        machinesBecomingIntr.push_back(machineIds);
+        machinesBecomingOff.push_back(machineIds2);
+        
+        for(unsigned j = 0; j < intrMachine_constants[i].size(); j++){
+            vector<MachineId_t> subMachineIds;
+            vector<MachineId_t> subMachineIds2;
+            machinesBecomingIntr[i].push_back(subMachineIds);
+            machinesBecomingOff[i].push_back(subMachineIds2);
+            for (unsigned k = 0; k < intrMachine_constants[i][j]; k++){
+                Machine_SetState(offMachines[i][j].back(),S1);
+                machinesBecomingIntr[i][j].push_back(offMachines[i][j].back());
+                offMachines[i][j].pop_back();
+            }
+            
+        }
+    }
 
-    // SimOutput("Scheduler::Init(): VM ids are " + to_string(vms[0]) + " ahd " + to_string(vms[1]), 3);
+    //actually shutdown all machines in off
+    for (unsigned i = 0; i < offMachines.size(); i++){
+        vector<vector<MachineId_t>> machineIds;
+        machinesBecomingActive.push_back(machineIds);
+        for(unsigned j = 0; j < offMachines[i].size(); j++){
+            vector<MachineId_t> subMachineIds;
+            machinesBecomingActive[i].push_back(subMachineIds);
+            for(unsigned k = 0; k < offMachines[i][j].size(); k++){
+                Machine_SetState(offMachines[i][j][k],S3);
+                machinesBecomingOff[i][j].push_back(offMachines[i][j][k]);
+            }
+            offMachines[i][j].clear();
+            
+        }
+        //all machines are removed from list until state change is finished
+    }
+
+    // // SimOutput("Scheduler::Init(): VM ids are " + to_string(vms[0]) + " ahd " + to_string(vms[1]), 3);
 }
+
 
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
-    // Update your data structure. The VM now can receive new tasks
-
-    MachineId_t source_id = migrationMap[vm_id];
-
-    for(unsigned i = 0; i < machineToVM[source_id].size(); i++){
-        if(machineToVM[source_id][i] == vm_id){
-            machineToVM[source_id].erase(machineToVM[source_id].begin() + i);
-            break;
-        }
-    }
-
-    migrationMap.erase(vm_id);
-
-    VMInfo_t currentVM = VM_GetInfo(vm_id);
-    if(currentVM.active_tasks.size() == 0){
-        for(unsigned i = 0; i < machineToVM[currentVM.machine_id].size(); i++){
-            if(machineToVM[currentVM.machine_id][i] == currentVM.vm_id){
-                machineToVM[currentVM.machine_id].erase(machineToVM[currentVM.machine_id].begin() + i);
-                VM_Shutdown(currentVM.vm_id);
-                break;
-            }
-        }
-    }
-
-    
+    // Unused in E-Eco  
 }
 
-void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
-    // Get the task parameters
-    //  IsGPUCapable(task_id);
-    //  GetMemory(task_id);
-    //  RequiredVMType(task_id);
-    //  RequiredSLA(task_id);
-    //  RequiredCPUType(task_id);
-    // Decide to attach the task to an existing VM, 
-    //      vm.AddTask(taskid, Priority_T priority); or
-    // Create a new VM, attach the VM to a machine
-    //      VM vm(type of the VM)
-    //      vm.Attach(machine_id);
-    //      vm.AddTask(taskid, Priority_t priority) or
-    // Turn on a machine, create a new VM, attach it to the VM, then add the task
-    //
-    // Turn on a machine, migrate an existing VM from a loaded machine....
-    //
-    // Other possibilities as desired
-
+bool addTask(TaskId_t task_id, bool tryGpu) {
     TaskInfo_t task = GetTaskInfo(task_id);
     bool task_added = false;
-    // cout <<"adding task " << task_id << endl;
-    for(unsigned i = 0; i < machines.size(); i++)
+    for(unsigned i = 0; i < activeMachines[task.required_cpu][tryGpu].size(); i++)
     {
-        MachineInfo_t currentMachine = Machine_GetInfo(machines[i]);
+        MachineInfo_t currentMachine = Machine_GetInfo(activeMachines[task.required_cpu][tryGpu][i]);
 
-        if(currentMachine.cpu != task.required_cpu){
-            continue;
-        }
-
-        if(estimatedMemoryAvailable(currentMachine.machine_id) != currentMachine.memory_size - currentMachine.memory_used){
-            // cout << "Machine " << currentMachine.machine_id << " estimated memory available: " << estimatedMemoryAvailable(currentMachine.machine_id) << " actual: " << currentMachine.memory_size - currentMachine.memory_used << endl;
-        }
-        if(estimatedActiveTasks(currentMachine.machine_id) != currentMachine.active_tasks){
-            // cout << "estimatedActiveTasks(currentMachine.machine_id) != currentMachine.active_tasks" << endl;
-        }
-
-        if(estimatedMemoryAvailable(currentMachine.machine_id) > (task.required_memory + 8) && currentMachine.num_cpus * tasks_per_cpu - estimatedActiveTasks(currentMachine.machine_id) > 0){
-
-            for(unsigned j = 0; j < machineToVM[i].size(); j++){
-                VMInfo_t currentVM = VM_GetInfo(machineToVM[i][j]);
-                if(currentVM.vm_type == task.required_vm && !migrationMap.count(machineToVM[i][j])){
+        if(estimatedMemoryAvailable(currentMachine.machine_id) > (task.required_memory + 8) && (currentMachine.num_cpus * TASKS_PER_CPU - estimatedActiveTasks(currentMachine.machine_id) > 0)){
+            
+            for(unsigned j = 0; j < machineToVM[currentMachine.machine_id].size(); j++){
+                VMInfo_t currentVM = VM_GetInfo(machineToVM[currentMachine.machine_id][j]);
+                if(currentVM.vm_type == task.required_vm ){
                     VM_AddTask(currentVM.vm_id, task.task_id, MID_PRIORITY);
                     taskToVM[task.task_id] = currentVM.vm_id;
                     task_added = true;
                     break;
                 }
             }
-
             if(!task_added){
                 VMId_t newVM = VM_Create(task.required_vm, task.required_cpu);
                 VM_Attach(newVM, currentMachine.machine_id);
                 VM_AddTask(newVM, task.task_id, MID_PRIORITY);
-                machineToVM[i].push_back(newVM);
+                machineToVM[currentMachine.machine_id].push_back(newVM);
                 taskToVM[task.task_id] = newVM;
                 task_added = true;
             }
             break;
+            
 
         }
-        else if (estimatedMemoryAvailable(currentMachine.machine_id) > task.required_memory && currentMachine.num_cpus * tasks_per_cpu - estimatedActiveTasks(currentMachine.machine_id) > 0){
-
+        else if (estimatedMemoryAvailable(currentMachine.machine_id) > task.required_memory && currentMachine.num_cpus * TASKS_PER_CPU - estimatedActiveTasks(currentMachine.machine_id) > 0){
             for(unsigned j = 0; j < machineToVM[i].size(); j++){
-                VMInfo_t currentVM = VM_GetInfo(machineToVM[i][j]);
-                if(currentVM.vm_type == task.required_vm && !migrationMap.count(machineToVM[i][j])){
+                VMInfo_t currentVM = VM_GetInfo(machineToVM[currentMachine.machine_id][j]);
+                if(currentVM.vm_type == task.required_vm ){
                     VM_AddTask(currentVM.vm_id, task.task_id, MID_PRIORITY);
                     taskToVM[task.task_id] = currentVM.vm_id;
                     task_added = true;
@@ -146,20 +173,97 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
                 }
             }
             break;
+            
 
         }
 
 
     }
+    return task_added;
+}
 
-    if(!task_added){
-        // cout << "failed to add task " << task_id<< endl;
-        unadded_tasks.push(task_id);
+void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
+
+    TaskInfo_t task = GetTaskInfo(task_id);
+    bool task_added = true;
+    bool no_prefered_machine = false;
+    
+    if ( !addTask(task_id, task.gpu_capable)){
+        task_added = addTask(task_id, !task.gpu_capable);
+        no_prefered_machine = true;
     }
+    
+    bool intrpool_changed = false;
+    if (task_added){
+        //calculate if "over loaded"/ nearing that point
+        //arbitrarily when task to CPU ratio of 1.5
+        
+        if (overloadCheck(task.required_cpu,no_prefered_machine^task.gpu_capable)){
+            //active machines are overloaded! move some from intrpool to active!
 
+            if (intrMachines[task.required_cpu][task.gpu_capable].size()>0){
+                Machine_SetState(intrMachines[task.required_cpu][task.gpu_capable].back(),S0);
+                machinesBecomingActive[task.required_cpu][task.gpu_capable].push_back(intrMachines[task.required_cpu][task.gpu_capable].back());
+                intrMachines[task.required_cpu][task.gpu_capable].pop_back();
+                intrpool_changed = true;
+            }else if (offMachines[task.required_cpu][task.gpu_capable].size()>0){
+                Machine_SetState(offMachines[task.required_cpu][task.gpu_capable].back(),S0);
+                machinesBecomingActive[task.required_cpu][task.gpu_capable].push_back(offMachines[task.required_cpu][task.gpu_capable].back());
+                offMachines[task.required_cpu][task.gpu_capable].pop_back();
+            }
+        }
+
+    }
     
+
+  
+    if(!task_added){
+        //Task can't be added, add new machine
+        unadded_tasks[GetTaskInfo(task_id).required_cpu].push_back(task_id);
+        //try to get machine of perferred GPU first, then other machines
+        if (machinesBecomingActive[task.required_cpu][task.gpu_capable].size() < 1){
+            if (intrMachines[task.required_cpu][task.gpu_capable].size() > 0){
+                Machine_SetState(intrMachines[task.required_cpu][task.gpu_capable].back(),S0);
+                machinesBecomingActive[task.required_cpu][task.gpu_capable].push_back(intrMachines[task.required_cpu][task.gpu_capable].back());
+                intrMachines[task.required_cpu][task.gpu_capable].pop_back();
+                intrpool_changed = true;
+            }else if (offMachines[task.required_cpu][task.gpu_capable].size()>0){
+                Machine_SetState(offMachines[task.required_cpu][task.gpu_capable].back(),S0);
+                machinesBecomingActive[task.required_cpu][task.gpu_capable].push_back(offMachines[task.required_cpu][task.gpu_capable].back());
+                offMachines[task.required_cpu][task.gpu_capable].pop_back();
+            }else if (intrMachines[task.required_cpu][!task.gpu_capable].size() > 0){
+                Machine_SetState(intrMachines[task.required_cpu][!task.gpu_capable].back(),S0);
+                machinesBecomingActive[task.required_cpu][!task.gpu_capable].push_back(intrMachines[task.required_cpu][!task.gpu_capable].back());
+                intrMachines[task.required_cpu][!task.gpu_capable].pop_back();
+                intrpool_changed = true;
+            }else if (offMachines[task.required_cpu][!task.gpu_capable].size()>0){
+                Machine_SetState(offMachines[task.required_cpu][!task.gpu_capable].back(),S0);
+                machinesBecomingActive[task.required_cpu][!task.gpu_capable].push_back(offMachines[task.required_cpu][!task.gpu_capable].back());
+                offMachines[task.required_cpu][!task.gpu_capable].pop_back();
+            }
+         }
+    }
     
-    // Skeleton code, you need to change it according to your algorithm
+    //check balance of intermediate
+    if (intrpool_changed ){
+        for (unsigned i = 0; i < intrMachines.size(); i++) {
+            for (unsigned j = 0; j < intrMachines[i].size(); j++) {
+                if (intrMachines[i][j].size() + machinesBecomingIntr[i][j].size() <intrMachine_constants[i][j]){
+                    //below quota, need to have more intr machines
+                    while(intrMachines[i][j].size() + machinesBecomingIntr[i][j].size() <intrMachine_constants[i][j] && offMachines[i][j].size()>0){
+                        if (offMachines[i][j].size()>0){
+                            Machine_SetState(offMachines[i][j].back(),S1);
+                            machinesBecomingIntr[i][j].push_back(offMachines[i][j].back());
+                            offMachines[i][j].pop_back();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+
+
 }
 
 void Scheduler::PeriodicCheck(Time_t now) {
@@ -167,27 +271,19 @@ void Scheduler::PeriodicCheck(Time_t now) {
     // SchedulerCheck is called periodically by the simulator to allow you to monitor, make decisions, adjustments, etc.
     // Unlike the other invocations of the scheduler, this one doesn't report any specific event
     // Recommendation: Take advantage of this function to do some monitoring and adjustments as necessary
-    bool task_running = false;
-    for(unsigned i = 0; i < machines.size(); i++)
-    {
-        if(Machine_GetInfo(machines[i]).active_tasks > 0){
-            task_running = true;
-            break;
+ 
+    for(unsigned i = 0; i < unadded_tasks.size(); i++){
+        
+        unsigned size = unadded_tasks[i].size();
+        for (unsigned j = 0 ; j < size; j++){
+
+            TaskId_t read_id = unadded_tasks[i].front();
+            unadded_tasks[i].erase(unadded_tasks[i].begin());
+            
+            NewTask(now, read_id);
         }
     }
-    if(!task_running){
-        cout << "no tasks running at time: " << now << endl;
-    }
-    unsigned iterations = unadded_tasks.size();
-    cout << "time " << now << " num unadded tasks: " << iterations << endl;
-    // cout << "time " << now << " unadded tasks:";
-    for(unsigned i = 0 ; i < iterations; i++){
-        TaskId_t readd_id = unadded_tasks.front();
-        unadded_tasks.pop();
-        // cout << " " << readd_id;
-        NewTask(now, readd_id);
-    }
-    // cout << endl;
+
 }
 
 void Scheduler::Shutdown(Time_t time) {
@@ -196,7 +292,6 @@ void Scheduler::Shutdown(Time_t time) {
     // Report about the SLA compliance
     // Shutdown everything to be tidy :-)
     for(auto & vm: vms) {
-        // cout << "shutting down " << vm <<endl;
         VM_Shutdown(vm);
     }
     SimOutput("SimulationComplete(): Finished!", 4);
@@ -208,107 +303,58 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     // Decide if a machine is to be turned off, slowed down, or VMs to be migrated according to your policy
     // This is an opportunity to make any adjustments to optimize performance/energy
 
-    // cout << "Task completed " << task_id << endl;
-
-    //if VM empty DESTROY!!!!
+    //if VM empty, destroy
     VMInfo_t completedTaskVM = VM_GetInfo(taskToVM[task_id]);
-    //MIGRATION CHECK?????
-    if(completedTaskVM.active_tasks.size() == 0 && !migrationMap.count(taskToVM[task_id])){
+    MachineInfo_t completedMachine = Machine_GetInfo(completedTaskVM.machine_id);
+
+    if(completedTaskVM.active_tasks.size() == 0){
 
         for(unsigned i = 0; i < machineToVM[completedTaskVM.machine_id].size(); i++){
             if(machineToVM[completedTaskVM.machine_id][i] == completedTaskVM.vm_id){
                 machineToVM[completedTaskVM.machine_id].erase(machineToVM[completedTaskVM.machine_id].begin() + i);
-                // cout << "shutting down VM " << completedTaskVM.vm_id << " on machine " << completedTaskVM.machine_id << endl;
                 VM_Shutdown(completedTaskVM.vm_id);
                 break;
             }
         }
+    }
+
+    if  (completedMachine.active_tasks == 0){
+        //remove from active pool to see if doing so will overload the active pool
+        for (unsigned i = 0; i < activeMachines[completedMachine.cpu][completedMachine.gpus].size(); i++){
+            if (activeMachines[completedMachine.cpu][completedMachine.gpus][i] == completedMachine.machine_id){
+                activeMachines[completedMachine.cpu][completedMachine.gpus].erase(activeMachines[completedMachine.cpu][completedMachine.gpus].begin() + i);
+                break;
+            }
+        }
+        //if not overloaded without machine, send to intermediate
+        if (!overloadCheck(completedMachine.cpu,completedMachine.gpus)){
+            machinesBecomingIntr[completedMachine.cpu][completedMachine.gpus].push_back(completedMachine.machine_id);
+            Machine_SetState(completedMachine.machine_id,S1);
+        }else{ // else add it back to active list
+            activeMachines[completedMachine.cpu][completedMachine.gpus].push_back(completedMachine.machine_id);
+        }
         
     }
-
-    taskToVM.erase(task_id);
-
-    vector<MachineId_t> machinesCopy = machines;
-    unordered_map<VMId_t, MachineId_t> destinationMap;
-
-    // sorts in ascending order by utilization measured as active tasks
-    sort(machinesCopy.begin(), machinesCopy.end(), [](MachineId_t a, MachineId_t b) {return estimatedActiveTasks(a) * Machine_GetInfo(b).num_cpus <  estimatedActiveTasks(b) * Machine_GetInfo(a).num_cpus; });
-
-    // cout << "Machines" << endl;
-    // for (auto i : machines)
-    //     cout << i << " ";
-    // cout << endl;
-    // cout << "machinesCopy" << endl;
-    // for (auto i : machinesCopy)
-    //     cout << i << " ";
-    // cout << endl;
-    // cout << "machinesCopy active tasks" << endl;
-    // for (auto i : machinesCopy)
-    //     cout << Machine_GetInfo(i).active_tasks << " ";
-    // cout << endl;
-
-    for(unsigned sourceMachine_index = 0; sourceMachine_index < machinesCopy.size(); sourceMachine_index++){
-        MachineId_t sourceMachine_id = machinesCopy[sourceMachine_index];
-        MachineInfo_t sourceMachine = Machine_GetInfo(sourceMachine_id);
-
-        if(sourceMachine.active_tasks < 1){
-            continue;
-        }
-
-        for(unsigned sourceVM_index = 0; sourceVM_index < machineToVM[sourceMachine_id].size(); sourceVM_index++){
-            VMId_t sourceVM_id = machineToVM[sourceMachine_id][sourceVM_index];
-            VMInfo_t sourceVM = VM_GetInfo(sourceVM_id);
-
-            for(unsigned destMachine_index = sourceMachine_index + 1; destMachine_index < machinesCopy.size(); destMachine_index++){
-                MachineId_t destMachine_id = machinesCopy[destMachine_index];
-                MachineInfo_t destMachine = Machine_GetInfo(destMachine_id);
-    
-                if(estimatedAvailableTasks(destMachine_id) >= sourceVM.active_tasks.size() && estimatedMemoryAvailable(destMachine_id) >= VMSize(sourceVM_id) && !migrationMap.count(sourceVM_id) && sourceVM.cpu == destMachine.cpu){
-                    //cout << "VM id " << sourceVM_id << " sourceVM.machine_id: " << sourceVM.machine_id << " sourceMachine_id " << sourceMachine_id << endl;
-                    if(sourceVM.machine_id != sourceMachine_id){
-                        // cout << "sourceVM.machine_id: " << sourceVM.machine_id << " sourceMachine_id " << sourceMachine_id << endl;
-
-                        MachineId_t prev_dest = destinationMap[sourceVM.vm_id];
-                        // cout << "prev_dest: " << prev_dest << endl;
-                        bool deleted = false;
-                        for(unsigned i = 0; i < machineToVM[prev_dest].size(); i++){
-                            if(machineToVM[prev_dest][i] == sourceVM_id){
-                                machineToVM[prev_dest].erase(machineToVM[prev_dest].begin() + i);
-                                deleted = true;
-                                break;
-                            }
-                        }
-
-                        if(!deleted){
-                            cout << "failed to remove VM: " << sourceVM.vm_id << " from prev_dest: " << prev_dest << endl;
-                        }                    
-                    }
-
-                    //fake migrate
-                    // cout << "fake migrating VM: " << sourceVM_id << " to machine: " << destMachine_id << endl;
-                    destinationMap[sourceVM_id] = destMachine_id;
-                    machineToVM[destMachine_id].push_back(sourceVM_id);
-                    break; //HAVE IAN APPROVE THIS
-                }
-    
-    
-            }
-
-
-        }
-
-    }
-
-    //migrate all in destination map
-    //update migration map
-    for(auto it = destinationMap.begin(); it != destinationMap.end(); it++){
-        // cout << "real migrating " << it->first << " to " << it->second << endl;
-        migrationMap[it->first] = VM_GetInfo(it->first).machine_id;
-        VM_Migrate(it->first, it->second);
-    }
-
+ 
 
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
+}
+
+bool overloadCheck(CPUType_t cpu, bool gpu){
+    int totalTasks = 0;
+    int totalCPUs = 0;
+    for (unsigned i = 0; i < activeMachines[cpu][gpu].size(); i++){
+        totalTasks += Machine_GetInfo(activeMachines[cpu][gpu][i]).active_tasks;
+        totalCPUs += Machine_GetInfo(activeMachines[cpu][gpu][i]).num_cpus;
+    }
+    //count machines that are becoming active
+    for (unsigned i = 0; i < machinesBecomingActive[cpu][gpu].size(); i++){
+        totalCPUs += Machine_GetInfo(machinesBecomingActive[cpu][gpu][i]).num_cpus;
+    }
+    //done strangely to avoid floatingpoints
+
+    return 2*totalTasks >= 3*totalCPUs;
+
 }
 
 // Public interface below
@@ -366,19 +412,48 @@ void SLAWarning(Time_t time, TaskId_t task_id) {
 
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
     // Called in response to an earlier request to change the state of a machine
+    
+    MachineInfo_t machine = Machine_GetInfo(machine_id);
+ 
+    //determining which pool to place machine after state change
+    if (machine.s_state == S1){
+        intrMachines[machine.cpu][machine.gpus].push_back(machine_id);
+        for(unsigned i = 0; i < machinesBecomingIntr[machine.cpu][machine.gpus].size(); i++){
+            if (machinesBecomingIntr[machine.cpu][machine.gpus][i] == machine_id){
+                machinesBecomingIntr[machine.cpu][machine.gpus].erase(machinesBecomingIntr[machine.cpu][machine.gpus].begin()+i);
+                break;
+            }
+        }
+    }else if(machine.s_state == S3){
+        offMachines[machine.cpu][machine.gpus].push_back(machine_id);
+        for(unsigned i = 0; i < machinesBecomingOff[machine.cpu][machine.gpus].size(); i++){
+            if (machinesBecomingOff[machine.cpu][machine.gpus][i] == machine_id){
+                machinesBecomingOff[machine.cpu][machine.gpus].erase(machinesBecomingOff[machine.cpu][machine.gpus].begin()+i);
+            }
+        }
+    }else{
+        if(unadded_tasks[machine.cpu].size() != 0) {
+            TaskId_t task = unadded_tasks[machine.cpu].front();
+            unadded_tasks[machine.cpu].erase(unadded_tasks[machine.cpu].begin());
+            VMId_t newVM = VM_Create(GetTaskInfo(task).required_vm, GetTaskInfo(task).required_cpu);
+            VM_Attach(newVM, machine.machine_id);
+            VM_AddTask(newVM, task, MID_PRIORITY);
+            machineToVM[machine.machine_id].push_back(newVM);
+            taskToVM[task] = newVM;
+        }
+        for(unsigned i = 0; i < machinesBecomingActive[machine.cpu][machine.gpus].size(); i++){
+            if (machinesBecomingActive[machine.cpu][machine.gpus][i] == machine_id){
+                machinesBecomingActive[machine.cpu][machine.gpus].erase(machinesBecomingActive[machine.cpu][machine.gpus].begin()+i);
+            }
+        }
+        activeMachines[machine.cpu][machine.gpus].push_back(machine_id);
+
+    }
 }
 
 unsigned estimatedMemoryAvailable(MachineId_t machine_id){
     MachineInfo_t machine = Machine_GetInfo(machine_id);
-
-    unsigned mem_used = 0;
-    for(unsigned i = 0; i < machineToVM[machine_id].size(); i++){
-        mem_used += VMSize(machineToVM[machine_id][i]);
-    }
-    if(mem_used > machine.memory_size){
-        cout << "issue in estimatedMemoryAvailable(), mem_used > machine.memory_size" << endl;
-    }
-    return machine.memory_size - mem_used;
+    return machine.memory_size - machine.memory_used;
 }
 
 unsigned VMSize(VMId_t vm_id){
@@ -394,17 +469,12 @@ unsigned VMSize(VMId_t vm_id){
 
 unsigned estimatedActiveTasks(MachineId_t machine_id){
     MachineInfo_t machine = Machine_GetInfo(machine_id);
-
-    unsigned tasks = 0;
-    for(unsigned i = 0; i < machineToVM[machine_id].size(); i++){
-        tasks += VM_GetInfo(machineToVM[machine_id][i]).active_tasks.size();
-    }
-    return tasks;
+    return machine.active_tasks;
 }
 
 unsigned estimatedAvailableTasks(MachineId_t machine_id){
     MachineInfo_t machine = Machine_GetInfo(machine_id);
 
     unsigned est_active = estimatedActiveTasks(machine_id);
-    return machine.num_cpus * tasks_per_cpu - est_active;
+    return machine.num_cpus * TASKS_PER_CPU - est_active;
 }
